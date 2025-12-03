@@ -10,7 +10,7 @@
 - name: Deploy Kafka broker in KRaft mode
   docker_container:
     name: kafka
-    image: "bitnami/kafka:latest"
+    image: "bitnami/kafka:3.9.0"
     state: started
     restart_policy: unless-stopped
     networks:
