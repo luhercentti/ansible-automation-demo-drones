@@ -1,0 +1,4 @@
+---
+prometheus_data_dir: "{{ data_dir }}/prometheus"
+grafana_data_dir: "{{ data_dir }}/grafana"
+monitoring_config_dir: "{{ config_dir }}/monitoring"

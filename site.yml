@@ -1,0 +1,69 @@
+---
+# Playbook principal para el despliegue del sistema de telemetría de drones
+- name: Deploy Drone Telemetry System
+  hosts: drone_platform
+  become: yes
+  gather_facts: yes
+
+  pre_tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+
+    - name: Ensure base directories exist
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - "{{ base_dir }}"
+        - "{{ data_dir }}"
+        - "{{ logs_dir }}"
+        - "{{ config_dir }}"
+
+  roles:
+    - role: common
+      tags: ['common', 'prerequisites']
+    
+    - role: clickhouse
+      tags: ['clickhouse', 'database']
+    
+    - role: kafka
+      tags: ['kafka', 'messaging']
+    
+    - role: thingsboard
+      tags: ['thingsboard', 'iot']
+    
+    - role: monitoring
+      tags: ['monitoring', 'grafana']
+      when: use_monitoring | bool
+    
+    - role: drone_simulator
+      tags: ['simulator', 'drones']
+
+  post_tasks:
+    - name: Display deployment summary
+      debug:
+        msg:
+          - "========================================="
+          - "Drone Telemetry System Deployed Successfully!"
+          - "========================================="
+          - "ThingsBoard UI: http://{{ ansible_host }}:{{ thingsboard_http_port }}"
+          - "  Username: {{ thingsboard_admin_email }}"
+          - "  Password: {{ thingsboard_admin_password }}"
+          - ""
+          - "ClickHouse HTTP: http://{{ ansible_host }}:{{ clickhouse_http_port }}"
+          - "  Database: {{ clickhouse_database }}"
+          - "  User: {{ clickhouse_user }}"
+          - ""
+          - "Kafka Broker: {{ ansible_host }}:{{ kafka_port }}"
+          - "  Topic: {{ kafka_topic_telemetry }}"
+          - ""
+          - "Grafana (if enabled): http://{{ ansible_host }}:{{ grafana_port }}"
+          - "  Username: {{ grafana_admin_user }}"
+          - "  Password: {{ grafana_admin_password }}"
+          - ""
+          - "Drone Simulator: {{ drone_simulator_count }} drones sending data every {{ drone_telemetry_interval }}s"
+          - "========================================="

@@ -1,0 +1,310 @@
+---
+- name: Create drone simulator directory
+  file:
+    path: "{{ drone_simulator_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Create drone simulator script
+  copy:
+    content: |
+      #!/usr/bin/env python3
+      """
+      Simulador de drones para envío de telemetría a ThingsBoard
+      """
+      import paho.mqtt.client as mqtt
+      import json
+      import time
+      import random
+      import sys
+      from datetime import datetime
+      
+      class DroneSimulator:
+          def __init__(self, drone_id, thingsboard_host="localhost", thingsboard_port=1883):
+              self.drone_id = drone_id
+              self.thingsboard_host = thingsboard_host
+              self.thingsboard_port = thingsboard_port
+              self.access_token = f"DRONE_{drone_id}_TOKEN"
+              
+              # Posición inicial aleatoria (zona de vigilancia)
+              self.latitude = 40.4168 + random.uniform(-0.1, 0.1)
+              self.longitude = -3.7038 + random.uniform(-0.1, 0.1)
+              self.altitude = random.uniform(50, 150)
+              
+              # Estado inicial
+              self.battery_level = 100.0
+              self.speed = random.uniform(10, 30)
+              self.mission_id = f"MISSION_{random.randint(1000, 9999)}"
+              self.status = "ACTIVE"
+              
+              self.client = mqtt.Client()
+              self.client.username_pw_set(self.access_token)
+              
+          def connect(self):
+              try:
+                  self.client.connect(self.thingsboard_host, self.thingsboard_port, 60)
+                  self.client.loop_start()
+                  print(f"[{self.drone_id}] Connected to ThingsBoard")
+                  return True
+              except Exception as e:
+                  print(f"[{self.drone_id}] Connection failed: {e}")
+                  return False
+          
+          def generate_telemetry(self):
+              # Simular movimiento del dron
+              self.latitude += random.uniform(-0.001, 0.001)
+              self.longitude += random.uniform(-0.001, 0.001)
+              self.altitude += random.uniform(-5, 5)
+              
+              # Simular descarga de batería
+              self.battery_level = max(0, self.battery_level - random.uniform(0.1, 0.5))
+              
+              # Simular variación de velocidad
+              self.speed = max(0, min(50, self.speed + random.uniform(-2, 2)))
+              
+              # Simular temperatura
+              temperature = random.uniform(15, 35)
+              
+              # Cambiar estado si batería baja
+              if self.battery_level < 20:
+                  self.status = "RETURNING"
+              elif self.battery_level < 10:
+                  self.status = "CRITICAL"
+              
+              telemetry = {
+                  "timestamp": datetime.utcnow().isoformat() + "Z",
+                  "latitude": round(self.latitude, 6),
+                  "longitude": round(self.longitude, 6),
+                  "altitude": round(self.altitude, 2),
+                  "battery_level": round(self.battery_level, 2),
+                  "speed": round(self.speed, 2),
+                  "temperature": round(temperature, 2),
+                  "status": self.status,
+                  "mission_id": self.mission_id
+              }
+              
+              return telemetry
+          
+          def send_telemetry(self):
+              telemetry = self.generate_telemetry()
+              payload = json.dumps(telemetry)
+              
+              result = self.client.publish('v1/devices/me/telemetry', payload)
+              
+              if result.rc == mqtt.MQTT_ERR_SUCCESS:
+                  print(f"[{self.drone_id}] Telemetry sent: Battery={telemetry['battery_level']:.1f}%, "
+                        f"Position=({telemetry['latitude']:.4f}, {telemetry['longitude']:.4f}), "
+                        f"Status={telemetry['status']}")
+              else:
+                  print(f"[{self.drone_id}] Failed to send telemetry")
+          
+          def run(self, interval=15):
+              if not self.connect():
+                  return
+              
+              print(f"[{self.drone_id}] Starting telemetry transmission every {interval} seconds")
+              
+              try:
+                  while self.battery_level > 0:
+                      self.send_telemetry()
+                      time.sleep(interval)
+                  
+                  print(f"[{self.drone_id}] Battery depleted. Simulation ended.")
+              except KeyboardInterrupt:
+                  print(f"\n[{self.drone_id}] Simulation stopped by user")
+              finally:
+                  self.client.loop_stop()
+                  self.client.disconnect()
+      
+      def main():
+          import argparse
+          
+          parser = argparse.ArgumentParser(description='Drone Telemetry Simulator')
+          parser.add_argument('--drone-id', type=str, required=True, help='Drone ID')
+          parser.add_argument('--host', type=str, default='localhost', help='ThingsBoard host')
+          parser.add_argument('--port', type=int, default=1883, help='ThingsBoard MQTT port')
+          parser.add_argument('--interval', type=int, default=15, help='Telemetry interval in seconds')
+          
+          args = parser.parse_args()
+          
+          drone = DroneSimulator(args.drone_id, args.host, args.port)
+          drone.run(args.interval)
+      
+      if __name__ == "__main__":
+          main()
+    dest: "{{ drone_simulator_dir }}/drone_simulator.py"
+    mode: '0755'
+
+- name: Create multi-drone launcher script
+  copy:
+    content: |
+      #!/bin/bash
+      # Launcher para múltiples drones
+      
+      DRONE_COUNT={{ drone_simulator_count }}
+      INTERVAL={{ drone_telemetry_interval }}
+      TB_HOST="localhost"
+      TB_PORT={{ thingsboard_mqtt_port }}
+      
+      echo "Starting $DRONE_COUNT drone simulators..."
+      
+      for i in $(seq 1 $DRONE_COUNT); do
+          DRONE_ID="DRONE_$(printf "%03d" $i)"
+          echo "Launching $DRONE_ID"
+          python3 {{ drone_simulator_dir }}/drone_simulator.py \
+              --drone-id "$DRONE_ID" \
+              --host "$TB_HOST" \
+              --port "$TB_PORT" \
+              --interval "$INTERVAL" &
+          sleep 1
+      done
+      
+      echo "All drones launched. Press Ctrl+C to stop all simulators."
+      wait
+    dest: "{{ drone_simulator_dir }}/start_drones.sh"
+    mode: '0755'
+
+- name: Create systemd service for drone simulator
+  copy:
+    content: |
+      [Unit]
+      Description=Drone Telemetry Simulator
+      After=docker.service
+      Requires=docker.service
+      
+      [Service]
+      Type=forking
+      ExecStart={{ drone_simulator_dir }}/start_drones.sh
+      ExecStop=/usr/bin/pkill -f drone_simulator.py
+      Restart=on-failure
+      RestartSec=10
+      
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/drone-simulator.service
+    mode: '0644'
+
+- name: Create requirements.txt for drone simulator
+  copy:
+    content: |
+      paho-mqtt==1.6.1
+      requests==2.31.0
+    dest: "{{ drone_simulator_dir }}/requirements.txt"
+    mode: '0644'
+
+- name: Install Python requirements for simulator
+  pip:
+    requirements: "{{ drone_simulator_dir }}/requirements.txt"
+    executable: pip3
+
+- name: Create device provisioning script
+  copy:
+    content: |
+      #!/usr/bin/env python3
+      """
+      Script para crear dispositivos (drones) en ThingsBoard
+      """
+      import requests
+      import json
+      import time
+      
+      TB_URL = "http://localhost:{{ thingsboard_http_port }}"
+      USERNAME = "tenant@thingsboard.org"
+      PASSWORD = "tenant"
+      DRONE_COUNT = {{ drone_simulator_count }}
+      
+      def get_token():
+          response = requests.post(
+              f"{TB_URL}/api/auth/login",
+              json={"username": USERNAME, "password": PASSWORD}
+          )
+          if response.status_code == 200:
+              return response.json()["token"]
+          return None
+      
+      def create_device(token, device_name):
+          headers = {
+              "Content-Type": "application/json",
+              "X-Authorization": f"Bearer {token}"
+          }
+          
+          device_data = {
+              "name": device_name,
+              "type": "Surveillance Drone"
+          }
+          
+          response = requests.post(
+              f"{TB_URL}/api/device",
+              headers=headers,
+              json=device_data
+          )
+          
+          if response.status_code == 200:
+              device_id = response.json()["id"]["id"]
+              print(f"Created device: {device_name} (ID: {device_id})")
+              return device_id
+          else:
+              print(f"Failed to create device {device_name}: {response.text}")
+              return None
+      
+      def get_device_credentials(token, device_id):
+          headers = {
+              "X-Authorization": f"Bearer {token}"
+          }
+          
+          response = requests.get(
+              f"{TB_URL}/api/device/{device_id}/credentials",
+              headers=headers
+          )
+          
+          if response.status_code == 200:
+              return response.json()["credentialsId"]
+          return None
+      
+      def main():
+          print("Waiting for ThingsBoard to be ready...")
+          time.sleep(20)
+          
+          token = get_token()
+          if not token:
+              print("Failed to authenticate")
+              return
+          
+          print(f"Creating {DRONE_COUNT} drone devices in ThingsBoard...")
+          
+          for i in range(1, DRONE_COUNT + 1):
+              device_name = f"DRONE_{i:03d}"
+              device_id = create_device(token, device_name)
+              
+              if device_id:
+                  credentials = get_device_credentials(token, device_id)
+                  if credentials:
+                      print(f"  Access Token: {credentials}")
+              
+              time.sleep(0.5)
+          
+          print("\nDevice provisioning completed!")
+          print(f"You can now start the drone simulator with: {drone_simulator_dir}/start_drones.sh")
+      
+      if __name__ == "__main__":
+          main()
+    dest: "{{ drone_simulator_dir }}/provision_devices.py"
+    mode: '0755'
+
+- name: Display drone simulator information
+  debug:
+    msg:
+      - "Drone Simulator configured"
+      - "Location: {{ drone_simulator_dir }}"
+      - "Number of drones: {{ drone_simulator_count }}"
+      - "Telemetry interval: {{ drone_telemetry_interval }} seconds"
+      - ""
+      - "To provision devices in ThingsBoard:"
+      - "  python3 {{ drone_simulator_dir }}/provision_devices.py"
+      - ""
+      - "To start simulation:"
+      - "  {{ drone_simulator_dir }}/start_drones.sh"
+      - ""
+      - "To enable as systemd service:"
+      - "  sudo systemctl enable drone-simulator"
+      - "  sudo systemctl start drone-simulator"

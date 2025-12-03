@@ -1,0 +1,274 @@
+ansible-automation-demo-drones/
+│
+├── 📄 ansible.cfg                      # Configuración de Ansible
+├── 📄 site.yml                         # Playbook principal de despliegue
+├── 📄 update.yml                       # Playbook de actualización
+├── 📄 undeploy.yml                     # Playbook de eliminación
+├── 📄 Makefile                         # Comandos simplificados
+│
+├── �� Documentación
+│   ├── 📄 README.md                    # Documentación principal
+│   ├── 📄 QUICKSTART.md                # Guía de inicio rápido
+│   ├── 📄 ARCHITECTURE.md              # Arquitectura detallada
+│   ├── 📄 EXAMPLES.md                  # Ejemplos de uso
+│   ├── 📄 REQUIREMENTS.txt             # Requisitos del sistema
+│   ├── 📄 CONTRIBUTING.md              # Guía de contribución
+│   ├── 📄 CHANGELOG.md                 # Historial de cambios
+│   └── 📄 LICENSE                      # Licencia MIT
+│
+├── 📁 inventory/                       # Inventarios de Ansible
+│   └── 📄 hosts.yml                    # Hosts objetivo
+│
+├── 📁 group_vars/                      # Variables globales
+│   └── 📄 all.yml                      # Variables para todos los hosts
+│
+├── 📁 roles/                           # Roles de Ansible
+│   │
+│   ├── 📁 common/                      # Prerequisitos del sistema
+│   │   ├── 📁 meta/
+│   │   │   └── 📄 main.yml
+│   │   └── 📁 tasks/
+│   │       └── 📄 main.yml             # Docker, Python, dependencias
+│   │
+│   ├── 📁 clickhouse/                  # Base de datos ClickHouse
+│   │   ├── 📁 defaults/
+│   │   │   └── 📄 main.yml
+│   │   ├── 📁 meta/
+│   │   │   └── 📄 main.yml
+│   │   └── 📁 tasks/
+│   │       └── 📄 main.yml             # Instalación y configuración
+│   │
+│   ├── 📁 kafka/                       # Apache Kafka + Zookeeper
+│   │   ├── 📁 defaults/
+│   │   │   └── 📄 main.yml
+│   │   ├── 📁 meta/
+│   │   │   └── 📄 main.yml
+│   │   └── 📁 tasks/
+│   │       └── 📄 main.yml             # Broker, topics, Kafka Connect
+│   │
+│   ├── 📁 thingsboard/                 # Plataforma IoT ThingsBoard
+│   │   ├── 📁 defaults/
+│   │   │   └── 📄 main.yml
+│   │   ├── 📁 meta/
+│   │   │   └── 📄 main.yml
+│   │   └── 📁 tasks/
+│   │       └── 📄 main.yml             # ThingsBoard + PostgreSQL
+│   │
+│   ├── 📁 monitoring/                  # Stack de monitoreo
+│   │   ├── 📁 defaults/
+│   │   │   └── 📄 main.yml
+│   │   ├── 📁 meta/
+│   │   │   └── 📄 main.yml
+│   │   └── 📁 tasks/
+│   │       └── 📄 main.yml             # Grafana, Prometheus, Node Exporter
+│   │
+│   └── 📁 drone_simulator/             # Simulador de drones
+│       ├── 📁 meta/
+│       │   └── 📄 main.yml
+│       └── 📁 tasks/
+│           └── 📄 main.yml             # Scripts Python, systemd service
+│
+├── 📁 scripts/                         # Scripts utilitarios
+│   ├── 📄 verify-deployment.sh         # Verificar estado del sistema
+│   ├── 📄 start-all.sh                 # Iniciar todos los servicios
+│   ├── 📄 stop-all.sh                  # Detener servicios
+│   ├── 📄 cleanup.sh                   # Limpieza completa
+│   ├── 📄 backup.sh                    # Backup de datos
+│   └── 📄 setup-kafka-connect.py       # Configurar Kafka Connect
+│
+├── 📁 config/                          # Archivos de configuración
+│   └── 📄 kafka-connect-clickhouse.json # Config de Kafka Connect Sink
+│
+├── 📁 docs/                            # Documentación adicional
+│   ├── 📄 README.md                    # Índice de documentación
+│   └── 📄 clickhouse-queries.sql       # Consultas SQL útiles
+│
+└── 📄 .gitignore                       # Archivos ignorados por Git
+
+
+🚀 ARQUITECTURA DEL SISTEMA
+═══════════════════════════════════════════════════════════════════
+
+┌─────────────┐
+│   Drones    │  (5 simuladores Python)
+│  MQTT Pub   │  Telemetría cada 15s
+└──────┬──────┘
+       │ MQTT (1883)
+       ▼
+┌──────────────────────┐
+│   ThingsBoard CE     │  Plataforma IoT
+│  - Device Mgmt       │  HTTP: 8080
+│  - Rule Engine        │  MQTT: 1883
+│  - PostgreSQL DB     │  CoAP: 5683
+└──────┬───────────────┘
+       │ Kafka Producer
+       ▼
+┌──────────────────────┐
+│   Apache Kafka       │  Mensajería
+│  - Zookeeper (2181)  │  Broker: 9092
+│  - Topic: telemetry  │  Partitions: 3
+│  - Kafka Connect     │  Connect: 8083
+└──────┬───────────────┘
+       │ Consumer / Connect
+       ▼
+┌──────────────────────┐
+│   ClickHouse         │  Base de datos
+│  - Columnar DB       │  HTTP: 8123
+│  - Time Series       │  Native: 9000
+│  - Partitioned       │  DB: drone_telemetry
+└──────┬───────────────┘
+       │ Queries
+       ▼
+┌──────────────────────┐
+│ Grafana + Prometheus │  Monitoreo
+│  - Dashboards        │  Grafana: 3000
+│  - Metrics           │  Prometheus: 9090
+│  - Alerts            │  Node Exp: 9100
+└──────────────────────┘
+
+
+📊 FLUJO DE DATOS
+═══════════════════════════════════════════════════════════════════
+
+1. Drones → MQTT → ThingsBoard
+   - 5 drones enviando datos cada 15 segundos
+   - Protocolo MQTT (lightweight)
+   - Datos: GPS, batería, velocidad, temperatura, estado
+
+2. ThingsBoard → Kafka
+   - Rule chain procesa datos
+   - Publica en topic "drone-telemetry"
+   - JSON serialization
+
+3. Kafka → ClickHouse
+   - Kafka Connect Sink (opcional)
+   - Batch inserts (1000 registros o 10s)
+   - Almacenamiento persistente
+
+4. ClickHouse → Grafana
+   - Consultas SQL optimizadas
+   - Dashboards en tiempo real
+   - Análisis histórico
+
+
+🎯 DATOS GESTIONADOS
+═══════════════════════════════════════════════════════════════════
+
+Cada mensaje de telemetría contiene:
+  - timestamp: DateTime con precisión de milisegundos
+  - drone_id: Identificador único (DRONE_001..005)
+  - latitude, longitude: Posición GPS (Float64)
+  - altitude: Altitud en metros (Float64)
+  - battery_level: Porcentaje de batería (Float32)
+  - speed: Velocidad en m/s (Float32)
+  - temperature: Temperatura en °C (Float32)
+  - status: Estado (ACTIVE, RETURNING, CRITICAL)
+  - mission_id: ID de misión asignada
+
+
+💾 PERSISTENCIA
+═══════════════════════════════════════════════════════════════════
+
+Datos almacenados en: /opt/drone-telemetry/
+
+  ├── data/
+  │   ├── clickhouse/      (~10GB para 1M registros)
+  │   ├── kafka/           (~5GB con 7 días retention)
+  │   ├── zookeeper/       (~100MB)
+  │   ├── thingsboard/     (~2GB)
+  │   │   ├── data/
+  │   │   └── postgres/
+  │   ├── grafana/         (~500MB)
+  │   └── prometheus/      (~2GB, 15 días retention)
+  │
+  ├── logs/
+  │   ├── thingsboard/
+  │   └── drone-simulator/
+  │
+  └── config/
+      ├── clickhouse/
+      ├── monitoring/
+      └── kafka-connect-docker-compose.yml
+
+
+🔧 COMANDOS PRINCIPALES
+═══════════════════════════════════════════════════════════════════
+
+Despliegue:
+  make deploy              # Desplegar todo el sistema
+  make deploy-clickhouse   # Solo ClickHouse
+  make deploy-kafka        # Solo Kafka
+  make deploy-thingsboard  # Solo ThingsBoard
+
+Gestión:
+  make verify              # Verificar estado
+  make status              # Ver recursos
+  make start               # Iniciar servicios
+  make stop                # Detener servicios
+  make restart             # Reiniciar todo
+
+Drones:
+  make provision-devices   # Crear drones en ThingsBoard
+  make start-drones        # Iniciar simulación
+
+Logs:
+  make logs                # Ver todos los logs
+  make logs-thingsboard    # Logs de ThingsBoard
+  make logs-kafka          # Logs de Kafka
+  make logs-clickhouse     # Logs de ClickHouse
+
+Datos:
+  make backup              # Crear backup
+  make query-drones        # Consultar drones en ClickHouse
+  make shell-clickhouse    # Shell interactivo
+
+Limpieza:
+  make clean               # Limpiar todo (PELIGROSO)
+  make undeploy            # Eliminar despliegue
+
+
+📈 MÉTRICAS CLAVE
+═══════════════════════════════════════════════════════════════════
+
+Sistema:
+  - Drones activos: 5
+  - Mensajes/segundo: ~0.33 (5 drones / 15s)
+  - Mensajes/día: ~28,800
+  - Almacenamiento/día: ~50MB (comprimido)
+
+Performance:
+  - Latencia MQTT → ThingsBoard: <100ms
+  - Latencia ThingsBoard → Kafka: <50ms
+  - Latencia Kafka → ClickHouse: <1s
+  - Query time (ClickHouse): <100ms
+
+Recursos (mínimos):
+  - CPU: 4 cores
+  - RAM: 8 GB
+  - Disco: 50 GB
+
+
+🎓 BUENAS PRÁCTICAS IMPLEMENTADAS
+═══════════════════════════════════════════════════════════════════
+
+DevOps:
+  ✓ Infrastructure as Code (Ansible)
+  ✓ Idempotencia en todos los roles
+  ✓ Variables centralizadas
+  ✓ Secrets configurables
+  ✓ Tags para despliegues selectivos
+
+Arquitectura:
+  ✓ Separación de responsabilidades
+  ✓ Escalabilidad horizontal preparada
+  ✓ Persistencia de datos garantizada
+  ✓ Monitoreo integrado
+  ✓ Logs centralizados
+
+Código:
+  ✓ Documentación completa
+  ✓ Scripts reutilizables
+  ✓ Manejo de errores
+  ✓ Validaciones pre-despliegue
+  ✓ Cleanup automatizado
+

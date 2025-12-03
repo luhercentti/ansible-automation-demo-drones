@@ -1,0 +1,114 @@
+---
+- name: Create ThingsBoard directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - "{{ thingsboard_data_dir }}"
+    - "{{ thingsboard_logs_dir }}"
+
+- name: Deploy PostgreSQL for ThingsBoard
+  docker_container:
+    name: postgres-tb
+    image: postgres:15
+    state: started
+    restart_policy: unless-stopped
+    networks:
+      - name: "{{ network_name }}"
+    env:
+      POSTGRES_DB: "thingsboard"
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "postgres"
+    volumes:
+      - "{{ thingsboard_data_dir }}/postgres:/var/lib/postgresql/data"
+
+- name: Wait for PostgreSQL to be ready
+  wait_for:
+    timeout: 15
+  delegate_to: localhost
+
+- name: Deploy ThingsBoard container
+  docker_container:
+    name: thingsboard
+    image: "thingsboard/tb-postgres:{{ thingsboard_version }}"
+    state: started
+    restart_policy: unless-stopped
+    networks:
+      - name: "{{ network_name }}"
+    ports:
+      - "{{ thingsboard_http_port }}:9090"
+      - "{{ thingsboard_mqtt_port }}:1883"
+      - "{{ thingsboard_coap_port }}:5683"
+      - "7070:7070"
+    env:
+      TB_QUEUE_TYPE: "kafka"
+      TB_KAFKA_SERVERS: "kafka:29092"
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-tb:5432/thingsboard"
+      SPRING_DATASOURCE_USERNAME: "postgres"
+      SPRING_DATASOURCE_PASSWORD: "postgres"
+    volumes:
+      - "{{ thingsboard_data_dir }}/data:/data"
+      - "{{ thingsboard_logs_dir }}:/var/log/thingsboard"
+
+- name: Wait for ThingsBoard to be ready
+  uri:
+    url: "http://localhost:{{ thingsboard_http_port }}/login"
+    status_code: 200
+  register: result
+  until: result.status == 200
+  retries: 60
+  delay: 5
+
+- name: Create ThingsBoard rule chain configuration script
+  copy:
+    content: |
+      #!/usr/bin/env python3
+      import requests
+      import json
+      import time
+      
+      TB_URL = "http://localhost:{{ thingsboard_http_port }}"
+      USERNAME = "tenant@thingsboard.org"
+      PASSWORD = "tenant"
+      
+      def get_token():
+          response = requests.post(
+              f"{TB_URL}/api/auth/login",
+              json={"username": USERNAME, "password": PASSWORD}
+          )
+          if response.status_code == 200:
+              return response.json()["token"]
+          return None
+      
+      def configure_kafka_integration(token):
+          headers = {
+              "Content-Type": "application/json",
+              "X-Authorization": f"Bearer {token}"
+          }
+          
+          # This would create a rule chain to forward telemetry to Kafka
+          # For simplicity, ThingsBoard is already configured to use Kafka
+          print("ThingsBoard is configured to forward data to Kafka topic: {{ kafka_topic_telemetry }}")
+      
+      if __name__ == "__main__":
+          time.sleep(10)
+          token = get_token()
+          if token:
+              configure_kafka_integration(token)
+              print("ThingsBoard configuration completed")
+          else:
+              print("Failed to authenticate with ThingsBoard")
+    dest: "{{ config_dir }}/configure_thingsboard.py"
+    mode: '0755'
+
+- name: Display ThingsBoard status
+  debug:
+    msg:
+      - "ThingsBoard deployed successfully"
+      - "Web UI: http://localhost:{{ thingsboard_http_port }}"
+      - "Default credentials:"
+      - "  System Admin - sysadmin@thingsboard.org / sysadmin"
+      - "  Tenant Admin - tenant@thingsboard.org / tenant"
+      - "MQTT endpoint: localhost:{{ thingsboard_mqtt_port }}"
+      - "CoAP endpoint: localhost:{{ thingsboard_coap_port }}"

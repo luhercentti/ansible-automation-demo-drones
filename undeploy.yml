@@ -1,0 +1,63 @@
+---
+# Playbook para eliminar completamente el despliegue
+- name: Undeploy Drone Telemetry System
+  hosts: drone_platform
+  become: yes
+  gather_facts: no
+
+  vars_prompt:
+    - name: confirm_deletion
+      prompt: "Are you sure you want to REMOVE ALL data and containers? Type 'YES' to confirm"
+      private: no
+
+  tasks:
+    - name: Verify confirmation
+      fail:
+        msg: "Deletion cancelled by user"
+      when: confirm_deletion != "YES"
+
+    - name: Stop drone simulator service
+      systemd:
+        name: drone-simulator
+        state: stopped
+        enabled: no
+      ignore_errors: yes
+
+    - name: Remove all Docker containers
+      shell: docker rm -f $(docker ps -aq)
+      ignore_errors: yes
+
+    - name: Remove Docker network
+      docker_network:
+        name: "{{ network_name }}"
+        state: absent
+      ignore_errors: yes
+
+    - name: Remove Docker volumes
+      shell: docker volume prune -f
+      ignore_errors: yes
+
+    - name: Remove data directories
+      file:
+        path: "{{ base_dir }}"
+        state: absent
+
+    - name: Remove systemd service file
+      file:
+        path: /etc/systemd/system/drone-simulator.service
+        state: absent
+
+    - name: Reload systemd daemon
+      systemd:
+        daemon_reload: yes
+
+    - name: Display cleanup summary
+      debug:
+        msg:
+          - "========================================="
+          - "System completely removed"
+          - "All data has been deleted"
+          - "========================================="
+          - ""
+          - "To redeploy, run:"
+          - "  ansible-playbook -i inventory/hosts.yml site.yml"

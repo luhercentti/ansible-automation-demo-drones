@@ -1,0 +1,52 @@
+---
+# Playbook para actualizar componentes del sistema
+- name: Update Drone Telemetry System Components
+  hosts: drone_platform
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Pull latest Docker images
+      docker_image:
+        name: "{{ item }}"
+        source: pull
+        force_source: yes
+      loop:
+        - "thingsboard/tb-postgres:{{ thingsboard_version }}"
+        - "confluentinc/cp-kafka:7.5.3"
+        - "confluentinc/cp-zookeeper:7.5.3"
+        - "clickhouse/clickhouse-server:{{ clickhouse_version }}"
+        - "grafana/grafana:{{ grafana_version }}"
+        - "prom/prometheus:v{{ prometheus_version }}"
+      tags: ['update', 'images']
+
+    - name: Restart containers with new images
+      docker_container:
+        name: "{{ item }}"
+        state: started
+        restart: yes
+      loop:
+        - clickhouse
+        - zookeeper
+        - kafka
+        - postgres-tb
+        - thingsboard
+        - grafana
+        - prometheus
+      tags: ['update', 'restart']
+
+    - name: Update Python packages for drone simulator
+      pip:
+        name:
+          - paho-mqtt
+          - requests
+        state: latest
+        executable: pip3
+      tags: ['update', 'python']
+
+    - name: Display update summary
+      debug:
+        msg:
+          - "System components updated successfully"
+          - "Please verify all services are running correctly"
+          - "Run: ./scripts/verify-deployment.sh"

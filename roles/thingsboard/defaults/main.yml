@@ -1,0 +1,3 @@
+---
+thingsboard_data_dir: "{{ data_dir }}/thingsboard"
+thingsboard_logs_dir: "{{ logs_dir }}/thingsboard"

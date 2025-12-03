@@ -1,0 +1,57 @@
+---
+# Variables globales para el proyecto de telemetría de drones
+
+# Directorios base
+base_dir: /opt/drone-telemetry
+data_dir: "{{ base_dir }}/data"
+logs_dir: "{{ base_dir }}/logs"
+config_dir: "{{ base_dir }}/config"
+
+# Configuración de red
+network_subnet: "172.25.0.0/16"
+network_name: "drone_network"
+
+# ThingsBoard
+thingsboard_version: "3.6.2"
+thingsboard_http_port: 8080
+thingsboard_mqtt_port: 1883
+thingsboard_coap_port: 5683
+thingsboard_admin_email: "sysadmin@thingsboard.local"
+thingsboard_admin_password: "DroneAdmin2025!"
+
+# Apache Kafka
+kafka_version: "3.6.1"
+kafka_port: 9092
+kafka_jmx_port: 9999
+zookeeper_port: 2181
+kafka_topic_telemetry: "drone-telemetry"
+kafka_partitions: 3
+kafka_replication_factor: 1
+
+# ClickHouse
+clickhouse_version: "23.12"
+clickhouse_http_port: 8123
+clickhouse_native_port: 9000
+clickhouse_database: "drone_telemetry"
+clickhouse_table: "telemetry_data"
+clickhouse_user: "droneuser"
+clickhouse_password: "ClickHouse2025!"
+
+# Grafana (Opcional para monitoreo)
+grafana_version: "10.2.3"
+grafana_port: 3000
+grafana_admin_user: "admin"
+grafana_admin_password: "Grafana2025!"
+
+# Prometheus (Opcional para monitoreo)
+prometheus_version: "2.48.1"
+prometheus_port: 9090
+
+# Simulador de drones
+drone_simulator_count: 5
+drone_telemetry_interval: 15  # segundos
+drone_simulator_dir: "{{ base_dir }}/drone-simulator"
+
+# Configuración de deployment
+deployment_mode: "docker"  # Opciones: docker, systemd
+use_monitoring: true

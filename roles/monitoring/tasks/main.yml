@@ -1,0 +1,244 @@
+---
+- name: Create monitoring directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - "{{ prometheus_data_dir }}"
+    - "{{ grafana_data_dir }}"
+    - "{{ monitoring_config_dir }}"
+
+- name: Create Prometheus configuration
+  copy:
+    content: |
+      global:
+        scrape_interval: 15s
+        evaluation_interval: 15s
+      
+      scrape_configs:
+        - job_name: 'prometheus'
+          static_configs:
+            - targets: ['localhost:9090']
+        
+        - job_name: 'kafka'
+          static_configs:
+            - targets: ['kafka:{{ kafka_jmx_port }}']
+        
+        - job_name: 'clickhouse'
+          static_configs:
+            - targets: ['clickhouse:9363']
+        
+        - job_name: 'thingsboard'
+          static_configs:
+            - targets: ['thingsboard:9090']
+        
+        - job_name: 'node-exporter'
+          static_configs:
+            - targets: ['node-exporter:9100']
+    dest: "{{ monitoring_config_dir }}/prometheus.yml"
+    mode: '0644'
+
+- name: Deploy Node Exporter for system metrics
+  docker_container:
+    name: node-exporter
+    image: prom/node-exporter:latest
+    state: started
+    restart_policy: unless-stopped
+    networks:
+      - name: "{{ network_name }}"
+    ports:
+      - "9100:9100"
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - '/proc:/host/proc:ro'
+      - '/sys:/host/sys:ro'
+      - '/:/rootfs:ro'
+
+- name: Deploy Prometheus
+  docker_container:
+    name: prometheus
+    image: "prom/prometheus:v{{ prometheus_version }}"
+    state: started
+    restart_policy: unless-stopped
+    networks:
+      - name: "{{ network_name }}"
+    ports:
+      - "{{ prometheus_port }}:9090"
+    volumes:
+      - "{{ prometheus_data_dir }}:/prometheus"
+      - "{{ monitoring_config_dir }}/prometheus.yml:/etc/prometheus/prometheus.yml"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+
+- name: Wait for Prometheus to be ready
+  uri:
+    url: "http://localhost:{{ prometheus_port }}/-/ready"
+    status_code: 200
+  register: result
+  until: result.status == 200
+  retries: 30
+  delay: 2
+
+- name: Deploy Grafana
+  docker_container:
+    name: grafana
+    image: "grafana/grafana:{{ grafana_version }}"
+    state: started
+    restart_policy: unless-stopped
+    networks:
+      - name: "{{ network_name }}"
+    ports:
+      - "{{ grafana_port }}:3000"
+    env:
+      GF_SECURITY_ADMIN_USER: "{{ grafana_admin_user }}"
+      GF_SECURITY_ADMIN_PASSWORD: "{{ grafana_admin_password }}"
+      GF_INSTALL_PLUGINS: "grafana-clickhouse-datasource"
+    volumes:
+      - "{{ grafana_data_dir }}:/var/lib/grafana"
+
+- name: Wait for Grafana to be ready
+  uri:
+    url: "http://localhost:{{ grafana_port }}/api/health"
+    status_code: 200
+  register: result
+  until: result.status == 200
+  retries: 30
+  delay: 2
+
+- name: Create Grafana datasource configuration for Prometheus
+  copy:
+    content: |
+      {
+        "name": "Prometheus",
+        "type": "prometheus",
+        "access": "proxy",
+        "url": "http://prometheus:9090",
+        "isDefault": true
+      }
+    dest: "{{ monitoring_config_dir }}/datasource-prometheus.json"
+    mode: '0644'
+
+- name: Create Grafana datasource configuration for ClickHouse
+  copy:
+    content: |
+      {
+        "name": "ClickHouse",
+        "type": "grafana-clickhouse-datasource",
+        "access": "proxy",
+        "url": "http://clickhouse:8123",
+        "database": "{{ clickhouse_database }}",
+        "jsonData": {
+          "username": "{{ clickhouse_user }}",
+          "defaultDatabase": "{{ clickhouse_database }}"
+        },
+        "secureJsonData": {
+          "password": "{{ clickhouse_password }}"
+        }
+      }
+    dest: "{{ monitoring_config_dir }}/datasource-clickhouse.json"
+    mode: '0644'
+
+- name: Create Grafana dashboard for drone telemetry
+  copy:
+    content: |
+      {
+        "dashboard": {
+          "title": "Drone Telemetry Dashboard",
+          "panels": [
+            {
+              "id": 1,
+              "title": "Active Drones",
+              "type": "stat",
+              "targets": [
+                {
+                  "expr": "SELECT count(DISTINCT drone_id) FROM {{ clickhouse_database }}.{{ clickhouse_table }} WHERE timestamp > now() - INTERVAL 1 MINUTE"
+                }
+              ]
+            },
+            {
+              "id": 2,
+              "title": "Battery Levels",
+              "type": "timeseries",
+              "targets": [
+                {
+                  "expr": "SELECT timestamp, drone_id, battery_level FROM {{ clickhouse_database }}.{{ clickhouse_table }} WHERE timestamp > now() - INTERVAL 1 HOUR"
+                }
+              ]
+            },
+            {
+              "id": 3,
+              "title": "Drone Positions",
+              "type": "geomap",
+              "targets": [
+                {
+                  "expr": "SELECT latitude, longitude, drone_id FROM {{ clickhouse_database }}.{{ clickhouse_table }} WHERE timestamp > now() - INTERVAL 5 MINUTE"
+                }
+              ]
+            },
+            {
+              "id": 4,
+              "title": "Altitude Distribution",
+              "type": "histogram",
+              "targets": [
+                {
+                  "expr": "SELECT altitude FROM {{ clickhouse_database }}.{{ clickhouse_table }} WHERE timestamp > now() - INTERVAL 1 HOUR"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    dest: "{{ monitoring_config_dir }}/dashboard-drones.json"
+    mode: '0644'
+
+- name: Create script to configure Grafana datasources
+  copy:
+    content: |
+      #!/bin/bash
+      
+      GRAFANA_URL="http://localhost:{{ grafana_port }}"
+      ADMIN_USER="{{ grafana_admin_user }}"
+      ADMIN_PASS="{{ grafana_admin_password }}"
+      
+      echo "Waiting for Grafana to be ready..."
+      sleep 10
+      
+      echo "Adding Prometheus datasource..."
+      curl -X POST -H "Content-Type: application/json" \
+           -u "$ADMIN_USER:$ADMIN_PASS" \
+           -d @{{ monitoring_config_dir }}/datasource-prometheus.json \
+           "$GRAFANA_URL/api/datasources"
+      
+      echo ""
+      echo "Adding ClickHouse datasource..."
+      curl -X POST -H "Content-Type: application/json" \
+           -u "$ADMIN_USER:$ADMIN_PASS" \
+           -d @{{ monitoring_config_dir }}/datasource-clickhouse.json \
+           "$GRAFANA_URL/api/datasources"
+      
+      echo ""
+      echo "Grafana configuration completed!"
+    dest: "{{ monitoring_config_dir }}/configure-grafana.sh"
+    mode: '0755'
+
+- name: Display monitoring information
+  debug:
+    msg:
+      - "Monitoring stack deployed successfully"
+      - ""
+      - "Prometheus: http://localhost:{{ prometheus_port }}"
+      - "Grafana: http://localhost:{{ grafana_port }}"
+      - "  Username: {{ grafana_admin_user }}"
+      - "  Password: {{ grafana_admin_password }}"
+      - ""
+      - "Node Exporter: http://localhost:9100/metrics"
+      - ""
+      - "To configure Grafana datasources, run:"
+      - "  {{ monitoring_config_dir }}/configure-grafana.sh"

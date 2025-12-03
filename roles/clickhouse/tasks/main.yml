@@ -1,0 +1,94 @@
+---
+- name: Create ClickHouse directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - "{{ clickhouse_data_dir }}"
+    - "{{ clickhouse_config_dir }}"
+
+- name: Create ClickHouse users configuration
+  copy:
+    content: |
+      <clickhouse>
+        <users>
+          <{{ clickhouse_user }}>
+            <password>{{ clickhouse_password }}</password>
+            <networks>
+              <ip>::/0</ip>
+            </networks>
+            <profile>default</profile>
+            <quota>default</quota>
+          </{{ clickhouse_user }}>
+        </users>
+      </clickhouse>
+    dest: "{{ clickhouse_config_dir }}/users.xml"
+    mode: '0644'
+
+- name: Deploy ClickHouse container
+  docker_container:
+    name: clickhouse
+    image: "clickhouse/clickhouse-server:{{ clickhouse_version }}"
+    state: started
+    restart_policy: unless-stopped
+    networks:
+      - name: "{{ network_name }}"
+    ports:
+      - "{{ clickhouse_http_port }}:8123"
+      - "{{ clickhouse_native_port }}:9000"
+    volumes:
+      - "{{ clickhouse_data_dir }}:/var/lib/clickhouse"
+      - "{{ clickhouse_config_dir }}/users.xml:/etc/clickhouse-server/users.d/custom-users.xml"
+    env:
+      CLICKHOUSE_DB: "{{ clickhouse_database }}"
+      CLICKHOUSE_USER: "{{ clickhouse_user }}"
+      CLICKHOUSE_PASSWORD: "{{ clickhouse_password }}"
+    ulimits:
+      - "nofile:262144:262144"
+
+- name: Wait for ClickHouse to be ready
+  uri:
+    url: "http://localhost:{{ clickhouse_http_port }}/ping"
+    status_code: 200
+  register: result
+  until: result.status == 200
+  retries: 30
+  delay: 2
+
+- name: Create telemetry database
+  command: >
+    docker exec clickhouse clickhouse-client --query="CREATE DATABASE IF NOT EXISTS {{ clickhouse_database }}"
+  register: db_result
+  changed_when: "'Ok' in db_result.stdout or db_result.rc == 0"
+
+- name: Create telemetry table
+  command: >
+    docker exec clickhouse clickhouse-client --query="
+    CREATE TABLE IF NOT EXISTS {{ clickhouse_database }}.{{ clickhouse_table }} (
+      timestamp DateTime64(3),
+      drone_id String,
+      latitude Float64,
+      longitude Float64,
+      altitude Float64,
+      battery_level Float32,
+      speed Float32,
+      temperature Float32,
+      status String,
+      mission_id String
+    ) ENGINE = MergeTree()
+    ORDER BY (drone_id, timestamp)
+    PARTITION BY toYYYYMM(timestamp)
+    SETTINGS index_granularity = 8192
+    "
+  register: table_result
+  changed_when: "'Ok' in table_result.stdout or table_result.rc == 0"
+
+- name: Display ClickHouse status
+  debug:
+    msg:
+      - "ClickHouse deployed successfully"
+      - "HTTP endpoint: http://localhost:{{ clickhouse_http_port }}"
+      - "Native endpoint: localhost:{{ clickhouse_native_port }}"
+      - "Database: {{ clickhouse_database }}"
+      - "Table: {{ clickhouse_table }}"
