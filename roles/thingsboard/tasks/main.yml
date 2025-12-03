@@ -3,9 +3,13 @@
   file:
     path: "{{ item }}"
     state: directory
-    mode: '0755'
+    mode: '0777'
+    owner: root
+    group: root
   loop:
     - "{{ thingsboard_data_dir }}"
+    - "{{ thingsboard_data_dir }}/data"
+    - "{{ thingsboard_data_dir }}/postgres"
     - "{{ thingsboard_logs_dir }}"
 
 - name: Deploy PostgreSQL for ThingsBoard
@@ -34,6 +38,7 @@
     image: "thingsboard/tb-postgres:{{ thingsboard_version }}"
     state: started
     restart_policy: unless-stopped
+    user: "0:0"
     networks:
       - name: "{{ network_name }}"
     ports:
@@ -43,7 +48,7 @@
       - "7070:7070"
     env:
       TB_QUEUE_TYPE: "kafka"
-      TB_KAFKA_SERVERS: "kafka:29092"
+      TB_KAFKA_SERVERS: "kafka:9092"
       SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-tb:5432/thingsboard"
       SPRING_DATASOURCE_USERNAME: "postgres"
       SPRING_DATASOURCE_PASSWORD: "postgres"
