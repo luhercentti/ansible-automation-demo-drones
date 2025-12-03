@@ -3,7 +3,7 @@
   file:
     path: "{{ item }}"
     state: directory
-    mode: '0755'
+    mode: '0777'
   loop:
     - "{{ prometheus_data_dir }}"
     - "{{ grafana_data_dir }}"
@@ -64,6 +64,7 @@
     image: "prom/prometheus:v{{ prometheus_version }}"
     state: started
     restart_policy: unless-stopped
+    user: "0:0"
     networks:
       - name: "{{ network_name }}"
     ports:
