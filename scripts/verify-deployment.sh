@@ -38,7 +38,6 @@ echo "1. Verificando contenedores Docker..."
 echo "---------------------------------------"
 check_service "clickhouse" 8123
 check_service "kafka" 9092
-check_service "zookeeper" 2181
 check_service "thingsboard" 8080
 check_service "postgres-tb" 5432
 check_service "grafana" 3000

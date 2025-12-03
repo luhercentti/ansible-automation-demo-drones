@@ -1,3 +1,2 @@
 ---
 kafka_data_dir: "{{ data_dir }}/kafka"
-zookeeper_data_dir: "{{ data_dir }}/zookeeper"

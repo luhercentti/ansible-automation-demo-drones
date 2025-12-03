@@ -23,7 +23,6 @@ thingsboard_admin_password: "DroneAdmin2025!"
 kafka_version: "3.6.1"
 kafka_port: 9092
 kafka_jmx_port: 9999
-zookeeper_port: 2181
 kafka_topic_telemetry: "drone-telemetry"
 kafka_partitions: 3
 kafka_replication_factor: 1
