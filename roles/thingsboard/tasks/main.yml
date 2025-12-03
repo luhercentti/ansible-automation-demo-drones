@@ -35,7 +35,7 @@
 - name: Deploy ThingsBoard container
   docker_container:
     name: thingsboard
-    image: "thingsboard/tb-postgres:{{ thingsboard_version }}"
+    image: "thingsboard/tb:{{ thingsboard_version }}"
     state: started
     restart_policy: unless-stopped
     networks:
