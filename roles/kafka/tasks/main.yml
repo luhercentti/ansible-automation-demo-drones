@@ -6,62 +6,51 @@
     mode: '0755'
   loop:
     - "{{ kafka_data_dir }}"
-    - "{{ kafka_data_dir }}/kraft-logs"
-
-- name: Generate Kafka cluster ID
-  command: docker run --rm confluentinc/cp-kafka:7.5.3 kafka-storage random-uuid
-  register: cluster_id_result
-  changed_when: false
-
-- name: Set cluster ID fact
-  set_fact:
-    kafka_cluster_id: "{{ cluster_id_result.stdout | trim }}"
 
 - name: Deploy Kafka broker in KRaft mode
   docker_container:
     name: kafka
-    image: "confluentinc/cp-kafka:7.5.3"
+    image: "bitnami/kafka:3.6.1"
     state: started
     restart_policy: unless-stopped
     networks:
       - name: "{{ network_name }}"
     ports:
       - "{{ kafka_port }}:9092"
-      - "{{ kafka_jmx_port }}:9999"
     env:
-      KAFKA_NODE_ID: "1"
-      KAFKA_PROCESS_ROLES: "broker,controller"
-      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
-      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://localhost:9092"
-      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT"
-      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@localhost:9093"
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      KAFKA_JMX_PORT: "9999"
-      KAFKA_JMX_HOSTNAME: "localhost"
-      KAFKA_HEAP_OPTS: "-Xmx512M -Xms256M"
-      CLUSTER_ID: "{{ kafka_cluster_id }}"
+      KAFKA_CFG_NODE_ID: "1"
+      KAFKA_CFG_PROCESS_ROLES: "broker,controller"
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@localhost:9093"
+      KAFKA_CFG_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
+      KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://localhost:9092"
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_KRAFT_CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+      KAFKA_HEAP_OPTS: "-Xmx768m -Xms512m"
     volumes:
-      - "{{ kafka_data_dir }}:/var/lib/kafka/data"
-    command: >
-      bash -c "kafka-storage format -t {{ kafka_cluster_id }} -c /etc/kafka/kraft/server.properties --ignore-formatted && 
-      /etc/confluent/docker/run"
-    memory: "1g"
-    memory_reservation: "512m"
+      - "{{ kafka_data_dir }}:/bitnami/kafka"
+    memory: "1536m"
+    memory_reservation: "1g"
 
 - name: Wait for Kafka to be ready
   wait_for:
     host: localhost
     port: "{{ kafka_port }}"
-    delay: 10
+    delay: 15
     timeout: 120
+
+- name: Wait for Kafka broker to fully start
+  pause:
+    seconds: 10
 
 - name: Create Kafka telemetry topic
   command: >
-    docker exec kafka kafka-topics --create 
+    docker exec kafka kafka-topics.sh --create 
     --if-not-exists 
     --topic {{ kafka_topic_telemetry }}
     --bootstrap-server localhost:9092
@@ -70,8 +59,8 @@
   register: topic_result
   changed_when: "'Created topic' in topic_result.stdout"
   failed_when: "topic_result.rc != 0 and 'already exists' not in topic_result.stderr"
-  retries: 3
-  delay: 5
+  retries: 5
+  delay: 10
   until: topic_result.rc == 0 or 'already exists' in topic_result.stderr
 
 - name: Display Kafka status
@@ -80,4 +69,3 @@
       - "Kafka deployed successfully in KRaft mode (without Zookeeper)"
       - "Kafka broker: localhost:{{ kafka_port }}"
       - "Telemetry topic: {{ kafka_topic_telemetry }}"
-      - "Cluster ID: {{ kafka_cluster_id }}"
