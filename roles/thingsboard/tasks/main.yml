@@ -59,9 +59,13 @@
 - name: Wait for ThingsBoard to be ready
   wait_for:
     host: localhost
-    port: 9090
-    delay: 30
-    timeout: 300
+    port: 8080
+    delay: 60
+    timeout: 600
+    
+- name: Additional wait for ThingsBoard full initialization
+  pause:
+    seconds: 30
 
 - name: Create ThingsBoard rule chain configuration script
   copy:
