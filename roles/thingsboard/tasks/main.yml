@@ -38,7 +38,6 @@
     image: "thingsboard/tb-postgres:{{ thingsboard_version }}"
     state: started
     restart_policy: unless-stopped
-    user: "0:0"
     networks:
       - name: "{{ network_name }}"
     ports:
