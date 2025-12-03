@@ -32,10 +32,22 @@
     timeout: 15
   delegate_to: localhost
 
+- name: Initialize ThingsBoard database
+  command: >
+    docker run --rm --network {{ network_name }}
+    -e INSTALL_TB=true
+    -e SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-tb:5432/thingsboard
+    -e SPRING_DATASOURCE_USERNAME=postgres
+    -e SPRING_DATASOURCE_PASSWORD=postgres
+    thingsboard/tb-node:3.6.2
+  register: init_result
+  changed_when: "'Installation finished successfully' in init_result.stdout"
+  failed_when: "init_result.rc != 0 and 'already exists' not in init_result.stderr"
+
 - name: Deploy ThingsBoard container
   docker_container:
     name: thingsboard
-    image: "thingsboard/tb:{{ thingsboard_version }}"
+    image: "thingsboard/tb-node:3.6.2"
     state: started
     restart_policy: unless-stopped
     networks:
