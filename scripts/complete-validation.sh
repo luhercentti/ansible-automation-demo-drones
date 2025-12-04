@@ -129,8 +129,11 @@ else
 fi
 
 # Verificar conexión con Kafka
-if docker logs thingsboard 2>&1 | tail -100 | grep -qi "kafka"; then
+KAFKA_CONFIG=$(docker exec thingsboard env 2>/dev/null | grep "TB_QUEUE_TYPE=kafka")
+if [ -n "$KAFKA_CONFIG" ]; then
     check_result 0 "ThingsBoard configurado con Kafka"
+    KAFKA_SERVERS=$(docker exec thingsboard env 2>/dev/null | grep "TB_KAFKA_SERVERS" | cut -d'=' -f2)
+    echo "   Kafka servers: $KAFKA_SERVERS"
 else
     check_result 1 "ThingsBoard no está configurado con Kafka"
 fi
