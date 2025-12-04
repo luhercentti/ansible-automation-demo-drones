@@ -69,12 +69,26 @@ echo ""
 # 2. Verificar Kafka
 echo "2. ✓ KAFKA"
 echo "----------------------------------------"
-if docker exec kafka kafka-topics.sh --bootstrap-server localhost:9092 --list 2>/dev/null | grep -q "drone-telemetry"; then
-    check_result 0 "Kafka está funcionando"
-    echo "   Topic creado: drone-telemetry"
-    echo "   Modo: KRaft (sin Zookeeper)"
+# Verificar que el contenedor está corriendo
+if docker ps | grep -q kafka; then
+    check_result 0 "Contenedor Kafka está corriendo"
+    
+    # Verificar topic
+    if docker exec kafka kafka-topics.sh --bootstrap-server localhost:9092 --list 2>/dev/null | grep -q "drone-telemetry"; then
+        check_result 0 "Topic 'drone-telemetry' existe"
+        echo "   Modo: KRaft (sin Zookeeper)"
+        echo "   Bootstrap server: kafka:9092"
+        
+        # Describir el topic
+        echo "   Detalles del topic:"
+        docker exec kafka kafka-topics.sh --bootstrap-server localhost:9092 --describe --topic drone-telemetry 2>/dev/null | grep -E "Topic:|PartitionCount:|ReplicationFactor:" || true
+    else
+        check_result 1 "Topic 'drone-telemetry' no existe"
+        echo "   Topics disponibles:"
+        docker exec kafka kafka-topics.sh --bootstrap-server localhost:9092 --list 2>/dev/null || echo "   No se pudieron listar topics"
+    fi
 else
-    check_result 1 "Kafka no responde o topic no existe"
+    check_result 1 "Contenedor Kafka no está corriendo"
 fi
 echo ""
 
