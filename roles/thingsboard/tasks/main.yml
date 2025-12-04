@@ -65,12 +65,7 @@
     mode: '0644'
 
 - name: Initialize ThingsBoard database
-  shell: |
-    docker compose -f {{ config_dir }}/thingsboard-docker-compose.yml run --rm \
-      -e INSTALL_TB=true \
-      -e LOAD_DEMO=false \
-      -v {{ thingsboard_data_dir }}/install:/usr/share/thingsboard \
-      thingsboard
+  command: docker compose -f {{ config_dir }}/thingsboard-docker-compose.yml run --rm -e INSTALL_TB=true -e LOAD_DEMO=false thingsboard
   args:
     chdir: "{{ config_dir }}"
   register: install_result
