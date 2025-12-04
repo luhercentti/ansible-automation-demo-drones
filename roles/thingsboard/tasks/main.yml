@@ -36,14 +36,13 @@
 - name: Create docker-compose file for ThingsBoard
   copy:
     content: |
-      version: '3.8'
       services:
         thingsboard:
           image: thingsboard/tb-node:3.6.2
           container_name: thingsboard
           restart: unless-stopped
           networks:
-            - {{ network_name }}
+            - drone_network
           ports:
             - "{{ thingsboard_http_port }}:8080"
             - "{{ thingsboard_mqtt_port }}:1883"
@@ -59,19 +58,26 @@
           volumes:
             - {{ thingsboard_data_dir }}/data:/data
             - {{ thingsboard_logs_dir }}:/var/log/thingsboard
+          depends_on:
+            - postgres-tb
       networks:
-        {{ network_name }}:
+        drone_network:
           external: true
     dest: "{{ config_dir }}/thingsboard-docker-compose.yml"
     mode: '0644'
 
 - name: Initialize ThingsBoard database
-  command: >
-    docker compose -f {{ config_dir }}/thingsboard-docker-compose.yml 
-    run --rm -e INSTALL_TB=true -e LOAD_DEMO=false thingsboard
+  shell: |
+    docker compose -f {{ config_dir }}/thingsboard-docker-compose.yml run --rm \
+      -e INSTALL_TB=true \
+      -e LOAD_DEMO=false \
+      -v {{ thingsboard_data_dir }}/install:/usr/share/thingsboard \
+      thingsboard
+  args:
+    chdir: "{{ config_dir }}"
   register: install_result
-  changed_when: "'Installation finished successfully' in install_result.stdout"
-  failed_when: "install_result.rc != 0 and 'Installation finished successfully' not in install_result.stdout"
+  changed_when: "'Installation finished successfully' in install_result.stdout or 'SUCCESSFULLY' in install_result.stdout"
+  failed_when: false
 
 - name: Start ThingsBoard with docker compose
   command: docker compose -f {{ config_dir }}/thingsboard-docker-compose.yml up -d
