@@ -11,7 +11,6 @@
     - "{{ thingsboard_data_dir }}/data"
     - "{{ thingsboard_data_dir }}/postgres"
     - "{{ thingsboard_logs_dir }}"
-    - "{{ config_dir }}/thingsboard"
 
 - name: Deploy PostgreSQL for ThingsBoard
   docker_container:
@@ -38,7 +37,7 @@
     content: |
       services:
         thingsboard:
-          image: thingsboard/tb-node:3.6.2
+          image: thingsboard/tb-node:4.2.1
           container_name: thingsboard
           restart: unless-stopped
           networks:
@@ -61,21 +60,17 @@
       networks:
         drone_network:
           external: true
-    dest: "{{ config_dir }}/thingsboard-docker-compose.yml"
+    dest: /tmp/thingsboard-docker-compose.yml
     mode: '0644'
 
 - name: Initialize ThingsBoard database
-  command: docker compose -f {{ config_dir }}/thingsboard-docker-compose.yml run --rm -e INSTALL_TB=true -e LOAD_DEMO=false thingsboard
-  args:
-    chdir: "{{ config_dir }}"
+  command: docker compose -f /tmp/thingsboard-docker-compose.yml run --rm -e INSTALL_TB=true -e LOAD_DEMO=false thingsboard
   register: install_result
   changed_when: "'Installation finished successfully' in install_result.stdout or 'SUCCESSFULLY' in install_result.stdout"
   failed_when: false
 
 - name: Start ThingsBoard with docker compose
-  command: docker compose -f {{ config_dir }}/thingsboard-docker-compose.yml up -d
-  args:
-    chdir: "{{ config_dir }}"
+  command: docker compose -f /tmp/thingsboard-docker-compose.yml up -d
 
 - name: Wait for ThingsBoard to be ready
   wait_for:
