@@ -84,6 +84,46 @@
   register: table_result
   changed_when: "'Ok' in table_result.stdout or table_result.rc == 0"
 
+- name: Create Kafka engine table for consuming ThingsBoard telemetry
+  command: >
+    docker exec clickhouse clickhouse-client --query="
+    CREATE TABLE IF NOT EXISTS {{ clickhouse_database }}.telemetry_kafka (
+      ts UInt64,
+      values String
+    ) ENGINE = Kafka
+    SETTINGS
+      kafka_broker_list = 'kafka:9092',
+      kafka_topic_list = 'tb_rule_engine.main',
+      kafka_group_name = 'clickhouse_consumer',
+      kafka_format = 'JSONEachRow',
+      kafka_num_consumers = 1
+    "
+  register: kafka_table_result
+  changed_when: "'Ok' in kafka_table_result.stdout or kafka_table_result.rc == 0"
+  failed_when: false
+
+- name: Create materialized view to parse and store telemetry
+  command: >
+    docker exec clickhouse clickhouse-client --query="
+    CREATE MATERIALIZED VIEW IF NOT EXISTS {{ clickhouse_database }}.telemetry_mv TO {{ clickhouse_database }}.{{ clickhouse_table }} AS
+    SELECT
+      fromUnixTimestamp64Milli(ts) as timestamp,
+      JSONExtractString(values, 'drone_id') as drone_id,
+      JSONExtractFloat(values, 'latitude') as latitude,
+      JSONExtractFloat(values, 'longitude') as longitude,
+      JSONExtractFloat(values, 'altitude') as altitude,
+      JSONExtractFloat(values, 'battery_level') as battery_level,
+      JSONExtractFloat(values, 'speed') as speed,
+      JSONExtractFloat(values, 'temperature') as temperature,
+      JSONExtractString(values, 'status') as status,
+      JSONExtractString(values, 'mission_id') as mission_id
+    FROM {{ clickhouse_database }}.telemetry_kafka
+    WHERE JSONHas(values, 'drone_id')
+    "
+  register: mv_result
+  changed_when: "'Ok' in mv_result.stdout or mv_result.rc == 0"
+  failed_when: false
+
 - name: Display ClickHouse status
   debug:
     msg:
@@ -92,3 +132,4 @@
       - "Native endpoint: localhost:{{ clickhouse_native_port }}"
       - "Database: {{ clickhouse_database }}"
       - "Table: {{ clickhouse_table }}"
+      - "Kafka consumer: Integrated via Kafka engine table"
