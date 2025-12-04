@@ -67,14 +67,14 @@
 
 - name: Initialize ThingsBoard database
   command: >
-    docker-compose -f {{ config_dir }}/thingsboard-docker-compose.yml 
+    docker compose -f {{ config_dir }}/thingsboard-docker-compose.yml 
     run --rm -e INSTALL_TB=true -e LOAD_DEMO=false thingsboard
   register: install_result
   changed_when: "'Installation finished successfully' in install_result.stdout"
   failed_when: "install_result.rc != 0 and 'Installation finished successfully' not in install_result.stdout"
 
-- name: Start ThingsBoard with docker-compose
-  command: docker-compose -f {{ config_dir }}/thingsboard-docker-compose.yml up -d
+- name: Start ThingsBoard with docker compose
+  command: docker compose -f {{ config_dir }}/thingsboard-docker-compose.yml up -d
   args:
     chdir: "{{ config_dir }}"
 
