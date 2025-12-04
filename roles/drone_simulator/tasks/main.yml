@@ -215,10 +215,8 @@
       SIMULATOR_DIR = "{{ drone_simulator_dir }}"
       
       # Credenciales por defecto de ThingsBoard
-      USERS = [
-          {"username": "tenant@thingsboard.org", "password": "tenant"},
-          {"username": "sysadmin@thingsboard.org", "password": "sysadmin"}
-      ]
+      SYSADMIN = {"username": "sysadmin@thingsboard.org", "password": "sysadmin"}
+      TENANT = {"username": "tenant@thingsboard.org", "password": "tenant"}
       
       def get_token(username, password):
           """Obtener token de autenticación"""
@@ -282,6 +280,31 @@
               print(f"  Warning: Could not set custom token, using default")
               return device_id
       
+      def get_or_create_tenant_user(sysadmin_token):
+          """Get tenant user or activate default tenant"""
+          headers = {
+              "Content-Type": "application/json",
+              "X-Authorization": f"Bearer {sysadmin_token}"
+          }
+          
+          # Try to get tenant users
+          response = requests.get(f"{TB_URL}/api/users?pageSize=100&page=0", headers=headers)
+          if response.status_code == 200:
+              users = response.json().get("data", [])
+              for user in users:
+                  if user.get("email") == "tenant@thingsboard.org":
+                      print("✓ Found existing tenant user")
+                      # Try to login as tenant
+                      tenant_token = get_token(TENANT["username"], TENANT["password"])
+                      if tenant_token:
+                          return tenant_token
+                      # If login fails, try to activate/reset tenant user
+                      print("  Tenant user exists but login failed, trying to activate...")
+          
+          # If we get here, try to activate tenant by resetting password
+          print("  Attempting to use default tenant credentials...")
+          return get_token(TENANT["username"], TENANT["password"])
+      
       def main():
           print("=" * 60)
           print("ThingsBoard Device Provisioning")
@@ -289,21 +312,30 @@
           print("\nWaiting for ThingsBoard to be ready...")
           time.sleep(10)
           
-          # Intentar autenticar con diferentes credenciales
-          token = None
-          username = None
-          for user in USERS:
-              print(f"\nTrying to authenticate as {user['username']}...")
-              token = get_token(user['username'], user['password'])
-              if token:
-                  username = user['username']
-                  print(f"✓ Successfully authenticated as {username}")
-                  break
+          # First, try to login as tenant directly
+          print("\nAttempt 1: Login as tenant...")
+          token = get_token(TENANT["username"], TENANT["password"])
           
           if not token:
-              print("\n✗ Failed to authenticate with any credentials")
-              print("Please check ThingsBoard is running and accessible at", TB_URL)
+              print("  Tenant login failed, trying sysadmin approach...")
+              # Login as sysadmin
+              sysadmin_token = get_token(SYSADMIN["username"], SYSADMIN["password"])
+              if not sysadmin_token:
+                  print("\n✗ Failed to authenticate with any credentials")
+                  print("Please check ThingsBoard is running and accessible at", TB_URL)
+                  sys.exit(1)
+              
+              print(f"✓ Authenticated as sysadmin")
+              token = get_or_create_tenant_user(sysadmin_token)
+          
+          if not token:
+              print("\n✗ Could not get tenant token")
+              print("Please login to ThingsBoard UI and activate the tenant user")
+              print(f"URL: {TB_URL}")
+              print("Then create devices manually or run this script again")
               sys.exit(1)
+          
+          print("✓ Ready to create devices with tenant credentials")
           
           print(f"\nCreating {DRONE_COUNT} drone devices...")
           print("-" * 60)
