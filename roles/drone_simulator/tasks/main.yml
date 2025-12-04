@@ -202,36 +202,52 @@
     content: |
       #!/usr/bin/env python3
       """
-      Script para crear dispositivos (drones) en ThingsBoard
+      Script para crear dispositivos (drones) en ThingsBoard usando la API REST
+      Este script usa las credenciales de tenant que vienen por defecto en ThingsBoard
       """
       import requests
       import json
       import time
+      import sys
       
       TB_URL = "http://localhost:{{ thingsboard_http_port }}"
-      USERNAME = "tenant@thingsboard.org"
-      PASSWORD = "tenant"
       DRONE_COUNT = {{ drone_simulator_count }}
       SIMULATOR_DIR = "{{ drone_simulator_dir }}"
       
-      def get_token():
-          response = requests.post(
-              f"{TB_URL}/api/auth/login",
-              json={"username": USERNAME, "password": PASSWORD}
-          )
-          if response.status_code == 200:
-              return response.json()["token"]
+      # Credenciales por defecto de ThingsBoard
+      USERS = [
+          {"username": "tenant@thingsboard.org", "password": "tenant"},
+          {"username": "sysadmin@thingsboard.org", "password": "sysadmin"}
+      ]
+      
+      def get_token(username, password):
+          """Obtener token de autenticación"""
+          try:
+              response = requests.post(
+                  f"{TB_URL}/api/auth/login",
+                  json={"username": username, "password": password},
+                  timeout=10
+              )
+              if response.status_code == 200:
+                  return response.json().get("token")
+              else:
+                  print(f"Login failed for {username}: {response.status_code} - {response.text}")
+          except Exception as e:
+              print(f"Error connecting to ThingsBoard: {e}")
           return None
       
-      def create_device(token, device_name):
+      def create_device(token, device_name, access_token):
+          """Crear dispositivo en ThingsBoard"""
           headers = {
               "Content-Type": "application/json",
               "X-Authorization": f"Bearer {token}"
           }
           
+          # Crear dispositivo
           device_data = {
               "name": device_name,
-              "type": "Surveillance Drone"
+              "type": "Surveillance Drone",
+              "label": f"Drone de vigilancia {device_name}"
           }
           
           response = requests.post(
@@ -240,52 +256,75 @@
               json=device_data
           )
           
-          if response.status_code == 200:
-              device_id = response.json()["id"]["id"]
-              print(f"Created device: {device_name} (ID: {device_id})")
-              return device_id
-          else:
-              print(f"Failed to create device {device_name}: {response.text}")
+          if response.status_code != 200:
+              print(f"✗ Failed to create device {device_name}: {response.text}")
               return None
-      
-      def get_device_credentials(token, device_id):
-          headers = {
-              "X-Authorization": f"Bearer {token}"
+              
+          device_id = response.json()["id"]["id"]
+          print(f"✓ Created device: {device_name} (ID: {device_id})")
+          
+          # Actualizar credenciales con token personalizado
+          cred_data = {
+              "credentialsType": "ACCESS_TOKEN",
+              "credentialsId": access_token
           }
           
-          response = requests.get(
+          response = requests.post(
               f"{TB_URL}/api/device/{device_id}/credentials",
-              headers=headers
+              headers=headers,
+              json=cred_data
           )
           
           if response.status_code == 200:
-              return response.json()["credentialsId"]
-          return None
+              print(f"  Access Token: {access_token}")
+              return device_id
+          else:
+              print(f"  Warning: Could not set custom token, using default")
+              return device_id
       
       def main():
-          print("Waiting for ThingsBoard to be ready...")
-          time.sleep(20)
+          print("=" * 60)
+          print("ThingsBoard Device Provisioning")
+          print("=" * 60)
+          print("\nWaiting for ThingsBoard to be ready...")
+          time.sleep(10)
           
-          token = get_token()
+          # Intentar autenticar con diferentes credenciales
+          token = None
+          username = None
+          for user in USERS:
+              print(f"\nTrying to authenticate as {user['username']}...")
+              token = get_token(user['username'], user['password'])
+              if token:
+                  username = user['username']
+                  print(f"✓ Successfully authenticated as {username}")
+                  break
+          
           if not token:
-              print("Failed to authenticate")
-              return
+              print("\n✗ Failed to authenticate with any credentials")
+              print("Please check ThingsBoard is running and accessible at", TB_URL)
+              sys.exit(1)
           
-          print(f"Creating {DRONE_COUNT} drone devices in ThingsBoard...")
+          print(f"\nCreating {DRONE_COUNT} drone devices...")
+          print("-" * 60)
           
+          created_count = 0
           for i in range(1, DRONE_COUNT + 1):
               device_name = f"DRONE_{i:03d}"
-              device_id = create_device(token, device_name)
+              access_token = f"DRONE_{i:03d}_TOKEN"
               
+              device_id = create_device(token, device_name, access_token)
               if device_id:
-                  credentials = get_device_credentials(token, device_id)
-                  if credentials:
-                      print(f"  Access Token: {credentials}")
+                  created_count += 1
               
               time.sleep(0.5)
           
-          print("\nDevice provisioning completed!")
-          print(f"You can now start the drone simulator with: {SIMULATOR_DIR}/start_drones.sh")
+          print("-" * 60)
+          print(f"\n✓ Device provisioning completed!")
+          print(f"  Created: {created_count}/{DRONE_COUNT} devices")
+          print(f"\nYou can now start the drone simulator:")
+          print(f"  {SIMULATOR_DIR}/start_drones.sh")
+          print("=" * 60)
       
       if __name__ == "__main__":
           main()
