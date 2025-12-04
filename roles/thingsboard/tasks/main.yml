@@ -58,8 +58,6 @@
           volumes:
             - {{ thingsboard_data_dir }}/data:/data
             - {{ thingsboard_logs_dir }}:/var/log/thingsboard
-          depends_on:
-            - postgres-tb
       networks:
         drone_network:
           external: true
