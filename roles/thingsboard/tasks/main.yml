@@ -11,6 +11,7 @@
     - "{{ thingsboard_data_dir }}/data"
     - "{{ thingsboard_data_dir }}/postgres"
     - "{{ thingsboard_logs_dir }}"
+    - "{{ config_dir }}/thingsboard"
 
 - name: Deploy PostgreSQL for ThingsBoard
   docker_container:
@@ -54,6 +55,7 @@
     volumes:
       - "{{ thingsboard_data_dir }}/data:/data"
       - "{{ thingsboard_logs_dir }}:/var/log/thingsboard"
+      - "{{ config_dir }}/thingsboard:/config"
 
 - name: Wait for ThingsBoard to be ready
   wait_for:
