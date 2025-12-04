@@ -209,8 +209,8 @@
       import time
       
       TB_URL = "http://localhost:{{ thingsboard_http_port }}"
-      USERNAME = "tenant@thingsboard.org"
-      PASSWORD = "tenant"
+      USERNAME = "sysadmin@thingsboard.org"
+      PASSWORD = "sysadmin"
       DRONE_COUNT = {{ drone_simulator_count }}
       
       def get_token():
