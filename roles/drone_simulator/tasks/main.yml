@@ -209,9 +209,10 @@
       import time
       
       TB_URL = "http://localhost:{{ thingsboard_http_port }}"
-      USERNAME = "sysadmin@thingsboard.org"
-      PASSWORD = "sysadmin"
+      USERNAME = "tenant@thingsboard.org"
+      PASSWORD = "tenant"
       DRONE_COUNT = {{ drone_simulator_count }}
+      SIMULATOR_DIR = "{{ drone_simulator_dir }}"
       
       def get_token():
           response = requests.post(
@@ -284,7 +285,7 @@
               time.sleep(0.5)
           
           print("\nDevice provisioning completed!")
-          print(f"You can now start the drone simulator with: {drone_simulator_dir}/start_drones.sh")
+          print(f"You can now start the drone simulator with: {SIMULATOR_DIR}/start_drones.sh")
       
       if __name__ == "__main__":
           main()
