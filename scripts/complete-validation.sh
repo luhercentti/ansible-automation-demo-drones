@@ -31,13 +31,31 @@ check_result() {
 # 1. Verificar ClickHouse
 echo "1. ✓ CLICKHOUSE"
 echo "----------------------------------------"
-if docker exec clickhouse clickhouse-client --query "SELECT count() FROM drone_telemetry.telemetry_data" &>/dev/null; then
-    check_result 0 "ClickHouse está funcionando"
-    echo "   Base de datos: drone_telemetry"
-    echo "   Tabla: telemetry_data"
-    docker exec clickhouse clickhouse-client --query "DESCRIBE drone_telemetry.telemetry_data" 2>/dev/null | head -8
+# Verificar endpoint HTTP
+CH_HTTP=$(curl -s http://localhost:8123/ 2>/dev/null || echo "")
+if [ "$CH_HTTP" == "Ok." ]; then
+    check_result 0 "ClickHouse HTTP está funcionando (puerto 8123)"
 else
-    check_result 1 "ClickHouse no responde"
+    check_result 1 "ClickHouse HTTP no responde"
+fi
+
+# Verificar base de datos y tabla
+if docker exec clickhouse clickhouse-client --query "SHOW DATABASES" 2>/dev/null | grep -q "drone_telemetry"; then
+    check_result 0 "Base de datos 'drone_telemetry' existe"
+    
+    if docker exec clickhouse clickhouse-client --query "SHOW TABLES FROM drone_telemetry" 2>/dev/null | grep -q "telemetry_data"; then
+        check_result 0 "Tabla 'telemetry_data' existe"
+        echo "   Esquema de la tabla:"
+        docker exec clickhouse clickhouse-client --query "DESCRIBE drone_telemetry.telemetry_data" 2>/dev/null | head -8
+        
+        # Contar registros
+        COUNT=$(docker exec clickhouse clickhouse-client --query "SELECT count() FROM drone_telemetry.telemetry_data" 2>/dev/null || echo "0")
+        echo "   Registros almacenados: $COUNT"
+    else
+        check_result 1 "Tabla 'telemetry_data' no existe"
+    fi
+else
+    check_result 1 "Base de datos 'drone_telemetry' no existe"
 fi
 echo ""
 
