@@ -6,6 +6,13 @@
 
 set -e
 
+# Verificar si se está ejecutando con sudo
+if [ "$EUID" -ne 0 ]; then 
+    echo "Este script requiere privilegios sudo para acceder a Docker"
+    echo "Ejecuta: sudo ./scripts/complete-validation.sh"
+    exit 1
+fi
+
 echo "=========================================="
 echo "VALIDACIÓN COMPLETA DEL SISTEMA"
 echo "=========================================="
