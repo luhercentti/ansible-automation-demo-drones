@@ -30,48 +30,53 @@
 
 - name: Wait for PostgreSQL to be ready
   wait_for:
-    timeout: 15
+    timeout: 20
   delegate_to: localhost
 
-- name: Initialize ThingsBoard database with docker run
-  command: >
-    docker run --rm 
-    --network {{ network_name }}
-    -e INSTALL_TB=true
-    -e LOAD_DEMO=false
-    -e TB_SERVICE_ID=tb-node
-    -e SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-tb:5432/thingsboard
-    -e SPRING_DATASOURCE_USERNAME=postgres
-    -e SPRING_DATASOURCE_PASSWORD=postgres
-    thingsboard/tb-node:3.6.2
-  register: install_result
-  changed_when: "'Installation finished successfully' in install_result.stdout or 'SUCCESSFULLY' in install_result.stdout"
-  failed_when: "install_result.rc != 0"
-  ignore_errors: yes
+- name: Create docker-compose file for ThingsBoard
+  copy:
+    content: |
+      version: '3.8'
+      services:
+        thingsboard:
+          image: thingsboard/tb-node:3.6.2
+          container_name: thingsboard
+          restart: unless-stopped
+          networks:
+            - {{ network_name }}
+          ports:
+            - "{{ thingsboard_http_port }}:8080"
+            - "{{ thingsboard_mqtt_port }}:1883"
+            - "{{ thingsboard_coap_port }}:5683"
+            - "7070:7070"
+          environment:
+            TB_SERVICE_ID: tb-node
+            TB_QUEUE_TYPE: kafka
+            TB_KAFKA_SERVERS: kafka:9092
+            SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-tb:5432/thingsboard
+            SPRING_DATASOURCE_USERNAME: postgres
+            SPRING_DATASOURCE_PASSWORD: postgres
+          volumes:
+            - {{ thingsboard_data_dir }}/data:/data
+            - {{ thingsboard_logs_dir }}:/var/log/thingsboard
+      networks:
+        {{ network_name }}:
+          external: true
+    dest: "{{ config_dir }}/thingsboard-docker-compose.yml"
+    mode: '0644'
 
-- name: Deploy ThingsBoard container
-  docker_container:
-    name: thingsboard
-    image: "thingsboard/tb-node:3.6.2"
-    state: started
-    restart_policy: unless-stopped
-    networks:
-      - name: "{{ network_name }}"
-    ports:
-      - "{{ thingsboard_http_port }}:8080"
-      - "{{ thingsboard_mqtt_port }}:1883"
-      - "{{ thingsboard_coap_port }}:5683"
-      - "7070:7070"
-    env:
-      TB_SERVICE_ID: "tb-node"
-      TB_QUEUE_TYPE: "kafka"
-      TB_KAFKA_SERVERS: "kafka:9092"
-      SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-tb:5432/thingsboard"
-      SPRING_DATASOURCE_USERNAME: "postgres"
-      SPRING_DATASOURCE_PASSWORD: "postgres"
-    volumes:
-      - "{{ thingsboard_data_dir }}/data:/data"
-      - "{{ thingsboard_logs_dir }}:/var/log/thingsboard"
+- name: Initialize ThingsBoard database
+  command: >
+    docker-compose -f {{ config_dir }}/thingsboard-docker-compose.yml 
+    run --rm -e INSTALL_TB=true -e LOAD_DEMO=false thingsboard
+  register: install_result
+  changed_when: "'Installation finished successfully' in install_result.stdout"
+  failed_when: "install_result.rc != 0 and 'Installation finished successfully' not in install_result.stdout"
+
+- name: Start ThingsBoard with docker-compose
+  command: docker-compose -f {{ config_dir }}/thingsboard-docker-compose.yml up -d
+  args:
+    chdir: "{{ config_dir }}"
 
 - name: Wait for ThingsBoard to be ready
   wait_for:
